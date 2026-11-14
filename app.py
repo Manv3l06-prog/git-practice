@@ -1,10 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from fastapi import FastAPI, HTTPException, Depends
 from pwdlib import PasswordHash
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import os
 
-
+from pygments.lexers import data
 
 app = FastAPI()
 password_hash = PasswordHash.recommended()
@@ -12,15 +12,18 @@ security = HTTPBasic()
 products = {}
 next_product_id = 1
 
+admin_password = os.getenv("ADMIN_PASSWORD")
+
+if not admin_password:
+    admin_password = "admin12345"
+
 users = {
     1: {
         "username": "admin",
+        "email": "admin@example.com",
         "age": 20,
         "is_active": True,
         "role": "admin",
-        "password_hash": password_hash.hash(
-            os.environ["ADMIN_PASSWORD"]
-        ),
     }
 }
 
@@ -28,6 +31,7 @@ next_user_id = 2
 
 class User(BaseModel):
     username: str
+    email: EmailStr
     age: int = Field(ge=0)
     password: str = Field(min_length=8)
     is_active: bool = True
@@ -35,6 +39,7 @@ class User(BaseModel):
 class UserPublic(BaseModel):
     id: int
     username: str
+    email: EmailStr
     age: int
     is_active: bool
     role: str
@@ -43,6 +48,9 @@ class Product(BaseModel):
     name: str = Field(min_length=1)
     price: int = Field(gt=0)
     quantity: int = Field(ge=0)
+
+class EmailChange(BaseModel):
+    new_email: EmailStr
 
 @app.post("/users", response_model=UserPublic)
 async def create_user(user: User):
@@ -155,3 +163,27 @@ def get_all_products():
         {"id": product_id, **product_data}
         for product_id, product_data in products.items()
     ]
+
+@app.patch("/me/email", response_model=UserPublic)
+def change_email(
+    data: EmailChange,
+    current_user: dict = Depends(get_current_user),
+):
+    for user_id, stored_user in users.items():
+        if (
+            stored_user.get("email") == data.new_email
+            and user_id != current_user["id"]
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Этот email уже используется",
+            )
+
+    user_id = current_user["id"]
+
+    users[user_id]["email"] = data.new_email
+
+    return {
+        "id": user_id,
+        **users[user_id],
+    }
