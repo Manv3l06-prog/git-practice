@@ -52,6 +52,10 @@ class Product(BaseModel):
 class EmailChange(BaseModel):
     new_email: EmailStr
 
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=8)
+
 @app.post("/users", response_model=UserPublic)
 async def create_user(user: User):
     global next_user_id
@@ -186,4 +190,30 @@ def change_email(
     return {
         "id": user_id,
         **users[user_id],
+    }
+
+@app.patch("/me/password")
+def change_password(
+        data: PasswordChange,
+        current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["id"]
+
+    old_password_is_correct = password_hash.verify(
+        data.old_password,
+        users[user_id]["password_hash"]
+    )
+
+    if not old_password_is_correct:
+        raise HTTPException(
+            status_code=400,
+            detail = "Старый пароль неверный"
+        )
+
+    users[user_id]["password_hash"] = password_hash.hash(
+        data.new_password,
+    )
+
+    return{
+        "message": "Пароль успешно изменен"
     }
