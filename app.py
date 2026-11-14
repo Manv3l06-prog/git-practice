@@ -3,6 +3,10 @@ from fastapi import FastAPI, HTTPException, Depends
 from pwdlib import PasswordHash
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import os
+import secrets
+
+reset_tokens = {}
+
 
 from pygments.lexers import data
 
@@ -54,6 +58,13 @@ class EmailChange(BaseModel):
 
 class PasswordChange(BaseModel):
     old_password: str
+    new_password: str = Field(min_length=8)
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
     new_password: str = Field(min_length=8)
 
 @app.post("/users", response_model=UserPublic)
@@ -213,6 +224,50 @@ def change_password(
     users[user_id]["password_hash"] = password_hash.hash(
         data.new_password,
     )
+
+    return{
+        "message": "Пароль успешно изменен"
+    }
+
+@app.post("/password-reset/request")
+def request_password_reset(
+        data: PasswordResetRequest
+):
+
+    for user_id, stored_user in users.items():
+        if stored_user.get("email") == data.email:
+
+            token = secrets.token_urlsafe(32)
+
+            reset_tokens[token] = user_id
+
+            return{
+                "message": "Зарос на сброс пароля создан",
+                "token": token,
+            }
+
+        raise HTTPException(
+            status_code = 404,
+            detail = "Пользователь стаким email не найден",
+        )
+
+@app.post("/password-reset/confirm")
+def confirm_password_reset(
+        data: PasswordResetConfirm,
+):
+    if data.token not in reset_tokens:
+        raise HTTPException(
+            status_code = 400,
+            detail = "Неверный или недействительный пароль"
+        )
+
+    user_id = reset_tokens[data.token]
+
+    users[user_id]["password_hash"] = password_hash.hash(
+        data.new_password,
+    )
+
+    del reset_tokens[data.token]
 
     return{
         "message": "Пароль успешно изменен"
